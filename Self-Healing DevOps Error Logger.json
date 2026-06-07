@@ -1,0 +1,210 @@
+{
+  "name": "Self-Healing DevOps Error Logger",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "devops-error",
+        "options": {}
+      },
+      "id": "fe52635e-692e-45d0-a528-bc9976cc58be",
+      "name": "Error Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        240,
+        400
+      ],
+      "webhookId": "b5f4741c-529e-4858-841a-aeb3ee62a2f5"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst result = [];\n\nfor (const item of items) {\n  const body = item.json.body || item.json;\n  const error = body.error || 'Unknown Error';\n  const line = body.line || 'N/A';\n  const repo = body.repo || 'unknown-repo';\n  const stackTrace = body.stackTrace || '';\n  \n  const cleanedTrace = stackTrace\n    .split('\\n')\n    .filter(line => line.trim().length > 0)\n    .join('\\n');\n  \n  const errorContext = {\n    errorType: error,\n    lineNumber: line,\n    repository: repo,\n    stackTrace: cleanedTrace,\n    timestamp: new Date().toISOString(),\n    severity: error.toLowerCase().includes('null') ? 'HIGH' : 'MEDIUM'\n  };\n  \n  result.push({ json: errorContext });\n}\n\nreturn result;"
+      },
+      "id": "02fdf204-4312-494e-87e0-6d38f64ce972",
+      "name": "Parse Stack Trace",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        464,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Analyze this production error and provide a detailed fix:\n\nError Type: {{ $json.errorType }}\nLine Number: {{ $json.lineNumber }}\nRepository: {{ $json.repository }}\nStack Trace:\n{{ $json.stackTrace }}\n\nPlease provide:\n1. Root cause analysis\n2. Code snippet to fix the issue\n3. Prevention recommendations",
+        "options": {
+          "systemMessage": "You are an expert DevOps engineer specializing in debugging production errors. Provide clear, actionable fixes with code examples."
+        }
+      },
+      "id": "ad8f8815-7449-45b0-b827-08aa77e8fcb4",
+      "name": "Analyze Error & Generate Fix",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        688,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "owner": {
+          "__rl": true,
+          "mode": "list",
+          "value": "<__PLACEHOLDER_VALUE__GitHub username or organization (e.g. n8n-io)__>"
+        },
+        "repository": {
+          "__rl": true,
+          "mode": "name",
+          "value": "={{ $(\"Parse Stack Trace\").item.json.repository }}"
+        },
+        "title": "=[AUTO] {{ $(\"Parse Stack Trace\").item.json.errorType }} - Line {{ $(\"Parse Stack Trace\").item.json.lineNumber }}",
+        "body": "=## 🚨 Production Error Detected\n\n**Error Type:** {{ $(\"Parse Stack Trace\").item.json.errorType }}\n**Severity:** {{ $(\"Parse Stack Trace\").item.json.severity }}\n**Timestamp:** {{ $(\"Parse Stack Trace\").item.json.timestamp }}\n**Line:** {{ $(\"Parse Stack Trace\").item.json.lineNumber }}\n\n### Stack Trace\n```\n{{ $(\"Parse Stack Trace\").item.json.stackTrace }}\n```\n\n### AI-Generated Fix\n{{ $json.output }}\n\n---\n*This issue was automatically created by the Self-Healing DevOps workflow*",
+        "labels": [
+          {
+            "label": "bug"
+          },
+          {
+            "label": "auto-generated"
+          },
+          {
+            "label": "={{ $(\"Parse Stack Trace\").item.json.severity }}"
+          }
+        ],
+        "assignees": []
+      },
+      "id": "c4a6a9fa-e225-4026-b271-a24f63f3fd8d",
+      "name": "Create GitHub Issue",
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1.1,
+      "position": [
+        1040,
+        304
+      ],
+      "webhookId": "e7fe8d81-3751-40dc-abfc-de4e32c3a980",
+      "credentials": {
+        "githubOAuth2Api": {
+          "id": "yAzHeD7I9ZGypOJu",
+          "name": "GitHub OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C0B8D2ZJP8X",
+          "mode": "list",
+          "cachedResultName": "new-channel"
+        },
+        "messageType": "block",
+        "blocksUi": "=[\n  {\n    \"type\": \"header\",\n    \"text\": {\n      \"type\": \"plain_text\",\n      \"text\": \"🚨 Production Error Alert\"\n    }\n  },\n  {\n    \"type\": \"section\",\n    \"fields\": [\n      {\n        \"type\": \"mrkdwn\",\n        \"text\": \"*Error:*\\n{{ $(\"Parse Stack Trace\").item.json.errorType }}\"\n      },\n      {\n        \"type\": \"mrkdwn\",\n        \"text\": \"*Severity:*\\n{{ $(\"Parse Stack Trace\").item.json.severity }}\"\n      },\n      {\n        \"type\": \"mrkdwn\",\n        \"text\": \"*Repository:*\\n{{ $(\"Parse Stack Trace\").item.json.repository }}\"\n      },\n      {\n        \"type\": \"mrkdwn\",\n        \"text\": \"*Line:*\\n{{ $(\"Parse Stack Trace\").item.json.lineNumber }}\"\n      }\n    ]\n  },\n  {\n    \"type\": \"section\",\n    \"text\": {\n      \"type\": \"mrkdwn\",\n      \"text\": \"*GitHub Issue:* <{{ $(\"Create GitHub Issue\").item.json.html_url }}|#{{ $(\"Create GitHub Issue\").item.json.number }}>\"\n    }\n  },\n  {\n    \"type\": \"divider\"\n  },\n  {\n    \"type\": \"section\",\n    \"text\": {\n      \"type\": \"mrkdwn\",\n      \"text\": \"*AI Analysis:*\\n{{ $(\"Analyze Error & Generate Fix\").item.json.output }}\"\n    }\n  }\n]",
+        "text": "=Production Error: {{ $(\"Parse Stack Trace\").item.json.errorType }}",
+        "otherOptions": {}
+      },
+      "id": "5a7d8cb6-c6de-4e7a-a145-fc7ca47ce229",
+      "name": "Notify Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.5,
+      "position": [
+        1040,
+        496
+      ],
+      "webhookId": "08f99565-dd42-4901-af66-8925bb1c9755",
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "lsyFH1MSBqLy21am",
+          "name": "Slack OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        560,
+        608
+      ],
+      "id": "b04a466c-0488-427a-b35c-b9a6297140c0",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "VusoUN6r3qt7WXAo",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Error Webhook": {
+      "main": [
+        [
+          {
+            "node": "Parse Stack Trace",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Stack Trace": {
+      "main": [
+        [
+          {
+            "node": "Analyze Error & Generate Fix",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Error & Generate Fix": {
+      "main": [
+        [
+          {
+            "node": "Create GitHub Issue",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Notify Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Analyze Error & Generate Fix",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "10475a6e-9e08-4f4d-b376-e18bb32594a1",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "c6751e7063403bf6186193a3228f15cf11bfe6a0be699c79694280e0ba472a3c"
+  },
+  "nodeGroups": [],
+  "id": "dAjZO40VOW9lZNDa",
+  "tags": []
+}
